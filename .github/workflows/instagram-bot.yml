@@ -2,9 +2,9 @@ name: Instagram Bot Cron
 
 on:
   schedule:
-    # Runs every 5 minutes
-    - cron: '*/5 * * * *'
-  # Allows you to click "Run workflow" manually from GitHub UI for testing
+    # Runs every 5 minutes, but only during hours 3 to 16 UTC
+    # (Which is roughly 8:30 AM to 10:30 PM India Time)
+    - cron: '*/5 3-16 * * *'
   workflow_dispatch:
 
 jobs:
@@ -13,6 +13,5 @@ jobs:
     steps:
       - name: Wake up Vercel API
         run: |
-          # Uses the secrets you added to GitHub Settings
           curl -X GET ${{ secrets.VERCEL_URL }}/api/cron \
           -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
