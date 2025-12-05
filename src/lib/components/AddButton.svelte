@@ -21,7 +21,7 @@
   }
 </script>
 
-<div class="fixed bottom-6 right-6 flex flex-col items-center gap-3 z-50 md:hidden">
+<div class="fixed bottom-6 right-6 flex flex-col items-center gap-3 z-1000 md:hidden">
   
   {#if isOpen}
     <div class="flex flex-col gap-3 mb-2" transition:fade={{ duration: 150 }}>
