@@ -111,10 +111,14 @@ export const actions = {
           .from(BUCKET_NAME)
           .getPublicUrl(fileName);
 
-        await supabase
+        const { error: updateError } = await adminSupabase
           .from(TABLE_NAME)
           .update({ image_url: urlData.publicUrl })
           .eq('id', realId);
+        if (updateError) {
+          console.error("Failed to save the image url")
+        }
+          
       }
     } catch (e) {
       console.error("Image gen failed:", e);
