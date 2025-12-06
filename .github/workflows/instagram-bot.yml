@@ -13,5 +13,5 @@ jobs:
     steps:
       - name: Wake up Vercel API
         run: |
-          curl -X GET ${{ secrets.VERCEL_URL }}/api/cron \
+          curl -L -X GET ${{ secrets.VERCEL_URL }}/api/cron \
           -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
