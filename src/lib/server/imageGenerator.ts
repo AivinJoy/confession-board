@@ -1,36 +1,20 @@
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 
-// 1. Fetch Text Font (Courier Prime) via CDN
-async function getTextFont() {
-  // Using JSDelivr for stability
-  const response = await fetch('https://cdn.jsdelivr.net/fontsource/fonts/courier-prime@latest/latin-400-normal.ttf');
+// Helper to fetch a font
+async function getFontData() {
+  // CHANGED: Using the raw GitHub link which acts as a stable CDN for the TTF file
+  const response = await fetch('https://raw.githubusercontent.com/google/fonts/main/ofl/courierprime/CourierPrime-Regular.ttf');
   
   if (!response.ok) {
-    console.error("Text font failed:", response.status, response.statusText);
-    throw new Error('Failed to fetch text font');
+    throw new Error('Failed to fetch font file');
   }
-  return await response.arrayBuffer();
-}
 
-// 2. Fetch Emoji Font (Noto Emoji) via CDN
-async function getEmojiFont() {
-  // FIXED: Using JSDelivr instead of raw GitHub link to avoid timeouts/redirect errors
-  const response = await fetch('https://cdn.jsdelivr.net/gh/googlefonts/noto-emoji@main/fonts/NotoEmoji-Regular.ttf');
-  
-  if (!response.ok) {
-    console.error("Emoji font failed:", response.status, response.statusText);
-    throw new Error('Failed to fetch emoji font');
-  }
   return await response.arrayBuffer();
 }
 
 export async function generateStickyImage(text: string, color: string, id: number) {
-  // Fetch fonts in parallel
-  const [fontData, emojiData] = await Promise.all([
-    getTextFont(),
-    getEmojiFont()
-  ]);
+  const fontData = await getFontData();
 
   const svg = await satori(
     {
@@ -110,13 +94,6 @@ export async function generateStickyImage(text: string, color: string, id: numbe
           weight: 400,
           style: 'normal',
         },
-        // Emoji Font Registration
-        {
-          name: 'Noto Emoji',
-          data: emojiData,
-          weight: 400,
-          style: 'normal',
-        }
       ],
     }
   );
