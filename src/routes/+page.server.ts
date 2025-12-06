@@ -1,13 +1,14 @@
 import { supabase } from '$lib/supabaseClient';
-import { adminSupabase } from '$lib/server/privateSupabase'; 
+import { adminSupabase } from '$lib/server/privateSupabase'; // CRITICAL IMPORT
 import { generateStickyImage } from '$lib/server/imageGenerator';
 import { fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 
 const TABLE_NAME = 'confessions';
-const BUCKET_NAME = 'confession-images';
+// Make sure this matches your bucket name exactly (plural/singular)
+const BUCKET_NAME = 'confession-images'; 
 
-// --- 1. LOAD FUNCTION (This was missing the user data!) ---
+// --- LOAD FUNCTION ---
 export const load: PageServerLoad = async ({ cookies }) => {
   const session = cookies.get('auth_session');
   const studentId = cookies.get('student_id');
@@ -27,15 +28,13 @@ export const load: PageServerLoad = async ({ cookies }) => {
     return { rawConfessions: [] };
   }
 
-  // PASS THE USER DATA TO THE FRONTEND
   return { 
     rawConfessions: rawConfessions ?? [],
-    currentUser: studentId, // <--- This was undefined before
-    userRole: userRole      // <--- This was undefined before
+    currentUser: studentId,
+    userRole: userRole
   };
 };
 
-// --- 2. HELPER: CHECK PERMISSIONS ---
 // --- HELPER: CHECK PERMISSIONS ---
 async function checkPermissions(postId: string, cookies: any) {
   const studentId = cookies.get('student_id');
@@ -43,7 +42,6 @@ async function checkPermissions(postId: string, cookies: any) {
 
   if (!studentId) return { allowed: false, error: 'Not logged in' };
 
-  // Fetch the specific post
   const { data: post } = await adminSupabase
     .from(TABLE_NAME)
     .select('student_id, created_at')
@@ -55,8 +53,6 @@ async function checkPermissions(postId: string, cookies: any) {
   const isOwner = post.student_id === studentId;
   const isAdmin = userRole === 'admin';
 
-  // --- TIMEZONE FIX START ---
-  // Ensure the date string is treated as UTC
   let timeString = post.created_at;
   if (!timeString.endsWith('Z') && !timeString.includes('+')) {
     timeString += 'Z'; 
@@ -64,10 +60,6 @@ async function checkPermissions(postId: string, cookies: any) {
   
   const postTime = new Date(timeString).getTime();
   const minutesDiff = (Date.now() - postTime) / 1000 / 60;
-  // --- TIMEZONE FIX END ---
-
-  // Log for debugging (Check your terminal to see this)
-  console.log(`Server Check - Owner: ${isOwner}, Admin: ${isAdmin}, Mins: ${minutesDiff.toFixed(2)}`);
 
   if (isAdmin || (isOwner && minutesDiff <= 2)) {
     return { allowed: true };
@@ -77,7 +69,7 @@ async function checkPermissions(postId: string, cookies: any) {
 }
 
 export const actions = {
-  // --- CREATE ---
+  // --- CREATE ACTION (FIXED) ---
   create: async ({ request, cookies }) => {
     const formData = await request.formData();
     const content = formData.get('content') as string;
@@ -86,6 +78,7 @@ export const actions = {
 
     if (!content || !color) return fail(400, { error: 'Missing data' });
 
+    // 1. Insert into DB (Standard client is fine here due to RLS policy)
     const { data: insertedData, error: dbError } = await supabase
       .from(TABLE_NAME)
       .insert([{ content, color, student_id: studentId }])
@@ -93,32 +86,42 @@ export const actions = {
       .single();
 
     if (dbError || !insertedData) {
-      console.error(dbError);
+      console.error("DB Insert Error:", dbError);
       return fail(500, { error: 'Database error' });
     }
 
     const realId = insertedData.id;
+
+    // 2. Generate & Upload Image
     try {
       const imageBuffer = await generateStickyImage(content, color, realId);
       const fileName = `${realId}_${Date.now()}.png`;
 
+      // Upload to Storage (Standard client is fine if bucket is public)
       const { error: uploadError } = await supabase.storage
         .from(BUCKET_NAME) 
         .upload(fileName, imageBuffer, { contentType: 'image/png' });
 
-      if (!uploadError) {
+      if (uploadError) {
+        console.error("Storage Upload Error:", uploadError);
+      } else {
+        // 3. Get Public URL
         const { data: urlData } = supabase.storage
           .from(BUCKET_NAME)
           .getPublicUrl(fileName);
 
+        // 4. UPDATE DB WITH URL (MUST USE ADMIN CLIENT)
+        // We use adminSupabase here to bypass "No Anonymous Updates" RLS rule
         const { error: updateError } = await adminSupabase
           .from(TABLE_NAME)
           .update({ image_url: urlData.publicUrl })
           .eq('id', realId);
+
         if (updateError) {
-          console.error("Failed to save the image url")
+          console.error("Failed to save Image URL to DB:", updateError);
+        } else {
+          console.log("Image URL saved successfully for ID:", realId);
         }
-          
       }
     } catch (e) {
       console.error("Image gen failed:", e);
@@ -127,7 +130,7 @@ export const actions = {
     return { success: true };
   },
 
-  // --- DELETE ---
+  // --- DELETE ACTION ---
   delete: async ({ request, cookies }) => {
     const formData = await request.formData();
     const id = formData.get('id') as string;
@@ -141,7 +144,7 @@ export const actions = {
     return { success: true };
   },
 
-  // --- UPDATE ---
+  // --- UPDATE ACTION ---
   update: async ({ request, cookies }) => {
     const formData = await request.formData();
     const id = formData.get('id') as string;
