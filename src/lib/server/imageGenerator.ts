@@ -1,21 +1,65 @@
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 
-// Helper to fetch a font
-async function getFontData() {
-  // CHANGED: Using the raw GitHub link which acts as a stable CDN for the TTF file
-  const response = await fetch('https://raw.githubusercontent.com/google/fonts/main/ofl/courierprime/CourierPrime-Regular.ttf');
-  
-  if (!response.ok) {
-    throw new Error('Failed to fetch font file');
-  }
+// Helper to fetch fonts safely
+async function fetchFont(url: string, name: string) {
+  try {
+    console.log(`[ImageGen] Fetching ${name}...`);
+    const response = await fetch(url, {
+      headers: {
+        // Some CDNs require a User-Agent to verify it's not a bot attack
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
 
-  return await response.arrayBuffer();
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${name}: ${response.status} ${response.statusText}`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    console.log(`[ImageGen] Success: ${name} loaded (${buffer.byteLength} bytes)`);
+    return buffer;
+  } catch (e) {
+    console.error(`[ImageGen] Error loading ${name}:`, e);
+    return null; // Return null instead of crashing
+  }
 }
 
 export async function generateStickyImage(text: string, color: string, id: number) {
-  const fontData = await getFontData();
+  console.log(`[ImageGen] Starting generation for #${id}`);
 
+  // 1. Fetch Fonts (Parallel)
+  // We use reliable CDNs. 
+  const [fontData, emojiData] = await Promise.all([
+    fetchFont('https://cdn.jsdelivr.net/fontsource/fonts/courier-prime@latest/latin-400-normal.ttf', 'Text Font'),
+    fetchFont('https://cdn.jsdelivr.net/gh/googlefonts/noto-emoji@main/fonts/NotoEmoji-Regular.ttf', 'Emoji Font')
+  ]);
+
+  if (!fontData) {
+    throw new Error('Critical: Could not load primary Text Font.');
+  }
+
+  // 2. Build Font List
+  // We always add the Text Font. We only add Emoji font if it loaded successfully.
+  const fontsList: any[] = [
+    {
+      name: 'Courier Prime',
+      data: fontData,
+      weight: 400,
+      style: 'normal',
+    }
+  ];
+
+  if (emojiData) {
+    fontsList.push({
+      name: 'Noto Emoji',
+      data: emojiData,
+      weight: 400,
+      style: 'normal',
+    });
+  }
+
+  // 3. Generate SVG
   const svg = await satori(
     {
       type: 'div',
@@ -87,20 +131,19 @@ export async function generateStickyImage(text: string, color: string, id: numbe
     {
       width: 1080,
       height: 1080,
-      fonts: [
-        {
-          name: 'Courier Prime',
-          data: fontData,
-          weight: 400,
-          style: 'normal',
-        },
-      ],
+      fonts: fontsList, // Use our dynamic list
     }
   );
 
+  console.log(`[ImageGen] SVG created. Converting to PNG...`);
+
+  // 4. Convert to PNG
   const resvg = new Resvg(svg, {
     fitTo: { mode: 'width', value: 1080 },
   });
   const pngData = resvg.render();
-  return pngData.asPng();
+  const pngBuffer = pngData.asPng();
+  
+  console.log(`[ImageGen] PNG Created. Size: ${pngBuffer.length}`);
+  return pngBuffer;
 }
