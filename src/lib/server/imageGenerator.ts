@@ -28,19 +28,17 @@ async function fetchFont(url: string, name: string) {
 export async function generateStickyImage(text: string, color: string, id: number) {
   console.log(`[ImageGen] Starting generation for #${id}`);
 
-  // 1. Fetch Fonts (Parallel)
-  // We use reliable CDNs. 
-  const [fontData, emojiData] = await Promise.all([
-    fetchFont('https://cdn.jsdelivr.net/fontsource/fonts/courier-prime@latest/latin-400-normal.ttf', 'Text Font'),
-    fetchFont('https://cdn.jsdelivr.net/gh/googlefonts/noto-emoji@main/fonts/NotoEmoji-Regular.ttf', 'Emoji Font')
-  ]);
+  // 1. Fetch Fonts (Only Text Font needed now)
+  const fontData = await fetchFont(
+    'https://cdn.jsdelivr.net/fontsource/fonts/courier-prime@latest/latin-400-normal.ttf', 
+    'Text Font'
+  );
 
   if (!fontData) {
     throw new Error('Critical: Could not load primary Text Font.');
   }
 
   // 2. Build Font List
-  // We always add the Text Font. We only add Emoji font if it loaded successfully.
   const fontsList: any[] = [
     {
       name: 'Courier Prime',
@@ -49,15 +47,6 @@ export async function generateStickyImage(text: string, color: string, id: numbe
       style: 'normal',
     }
   ];
-
-  if (emojiData) {
-    fontsList.push({
-      name: 'Noto Emoji',
-      data: emojiData,
-      weight: 400,
-      style: 'normal',
-    });
-  }
 
   // 3. Generate SVG
   const svg = await satori(
@@ -98,7 +87,7 @@ export async function generateStickyImage(text: string, color: string, id: numbe
               style: {
                 display: 'flex',
                 fontSize: '48px',
-                fontFamily: 'Courier Prime',
+                fontFamily: 'Courier Prime', // Just the standard font
                 color: '#1a1a1a',
                 lineHeight: '1.4',
                 marginTop: '40px',
@@ -131,13 +120,22 @@ export async function generateStickyImage(text: string, color: string, id: numbe
     {
       width: 1080,
       height: 1080,
-      fonts: fontsList, // Use our dynamic list
+      fonts: fontsList,
+      // 4. Handle Emojis dynamically using loadAdditionalAsset
+      // 4. Handle Emojis dynamically using loadAdditionalAsset
+      loadAdditionalAsset: async (code: string, segment: string) => {
+        if (code === 'emoji') {
+          // This fetches the raw SVG string, guaranteeing it renders locally and in production
+          return await getEmojiSvg(segment);
+        }
+        return '';
+      },
     }
   );
 
   console.log(`[ImageGen] SVG created. Converting to PNG...`);
 
-  // 4. Convert to PNG
+  // 5. Convert to PNG
   const resvg = new Resvg(svg, {
     fitTo: { mode: 'width', value: 1080 },
   });
@@ -147,3 +145,38 @@ export async function generateStickyImage(text: string, color: string, id: numbe
   console.log(`[ImageGen] PNG Created. Size: ${pngBuffer.length}`);
   return pngBuffer;
 }
+
+// Helper to decode complex emojis and fetch their raw SVG data
+async function getEmojiSvg(segment: string) {
+  // 1. Remove invisible variation selectors (like the one attached to ❤️)
+  const cleanStr = segment.replace(/\uFE0F/g, '');
+  
+  // 2. Properly decode all parts of the emoji (handles combined emojis)
+  const codes = [];
+  for (const char of cleanStr) {
+    const pt = char.codePointAt(0);
+    if (pt) codes.push(pt.toString(16));
+  }
+  const emojiCode = codes.join('-');
+
+  // 3. Fetch the raw SVG text directly
+  try {
+    const url = `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/${emojiCode}.svg`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    
+    if (res.ok) {
+      const svgText = await res.text();
+      // FIX: Convert the raw SVG string into a valid Base64 Data URI
+      const base64 = Buffer.from(svgText).toString('base64');
+      return `data:image/svg+xml;base64,${base64}`;
+    }
+  } catch (e) {
+    console.error(`[ImageGen] Failed to load emoji ${emojiCode}`, e);
+  }
+  return '';
+}
+
