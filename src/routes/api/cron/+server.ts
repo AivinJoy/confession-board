@@ -3,6 +3,8 @@ import { adminSupabase } from '$lib/server/privateSupabase';
 import { env } from '$env/dynamic/private';
 import { json } from '@sveltejs/kit';
 
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 export async function GET({ request }) {
   // 1. SECURITY: Check for the Secret Key (So hackers don't spam your IG)
   const authHeader = request.headers.get('authorization');
@@ -48,6 +50,10 @@ export async function GET({ request }) {
     if (!containerData.id) {
       throw new Error(`IG Container Error: ${JSON.stringify(containerData)}`);
     }
+
+    // --- NEW: Add a 30-second delay here to allow IG to process the image ---
+    console.log('Image uploaded. Waiting 30 seconds for processing...');
+    await delay(30000);
 
     // 4. PUBLISH THE CONTAINER
     const publishRes = await fetch(
